@@ -69,6 +69,11 @@ avoiding full table scans or complex filters.
   List all entries in Dataplex Catalog (e.g. tables, views, models) that matches
   given user query.
 
+- [`bigquery-data-profile`](../tools/bigquery/bigquery-data-profile.md)
+  Identify common statistical characteristics (common values, data distribution, 
+  null counts) of the columns in your BigQuery tables. This information helps 
+  to understand and analyze your data more effectively.
+
 ### Pre-built Configurations
 
 - [BigQuery using
