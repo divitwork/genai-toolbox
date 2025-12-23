@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package bigquerysearchcatalog
+package bigquerydataprofile
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, bigqueryds.DataplexClientCreator, error)
+	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, bigqueryds.DataplexClientCreator, error)
 	BigQueryProject() string
 	UseClientAuthorization() bool
 }
@@ -201,20 +201,20 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		},
 	}
 
-	catalogClient, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
+	_, dataScanClient, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
 
 	if source.UseClientAuthorization() {
 		tokenStr, err := accessToken.ParseBearerToken()
 		if err != nil {
 			return nil, fmt.Errorf("error parsing access token: %w", err)
 		}
-		catalogClient, err = dataplexClientCreator(tokenStr)
+		_, dataScanClient, err = dataplexClientCreator(tokenStr)
 		if err != nil {
 			return nil, fmt.Errorf("error creating client from OAuth access token: %w", err)
 		}
 	}
 
-	op, err := catalogClient.CreateDataScan(ctx, req)
+	op, err := dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
@@ -223,8 +223,10 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
+
+	fmt.Println("respose is %s", resp)
 	
-	return resp
+	return resp, nil
 }
 
 func (t Tool) ParseParams(data map[string]any, claims map[string]map[string]any) (parameters.ParamValues, error) {
