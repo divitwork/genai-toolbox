@@ -26,7 +26,6 @@ import (
 	bigqueryds "github.com/googleapis/genai-toolbox/internal/sources/bigquery"
 	"github.com/googleapis/genai-toolbox/internal/tools"
 	"github.com/googleapis/genai-toolbox/internal/util/parameters"
-	"google.golang.org/api/iterator"
 )
 
 const kind string = "bigquery-data-profile"
@@ -151,6 +150,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	}
 
 	paramsMap := params.AsMap()
+	_ = paramsMap
 	// pageSize := int32(paramsMap["pageSize"].(int))
 	// prompt, _ := paramsMap["prompt"].(string)
 	// projectIdSlice, err := parameters.ConvertAnySliceToTyped(paramsMap["projectIds"].([]any), "string")
@@ -170,7 +170,35 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	// types := typesSlice.([]string)
 
 	req := &dataplexpb.CreateDataScanRequest{
-		// TODO: Fill request struct fields.
+		// Required: Parent location resource name extracted from your project/location
+		Parent: "projects/autopush-cmek-test-project-1/locations/us-west1",
+		// Required: Scan ID set to "testscan"
+		DataScanId: "testscan",
+		// Required: DataScan resource configuration
+		DataScan: &dataplexpb.DataScan{
+			DisplayName: "TestScan",
+			// Required: The BigQuery table resource identified in your "Table to scan" section
+			Data: &dataplexpb.DataSource{
+				Source: &dataplexpb.DataSource_Resource{
+					Resource: "//bigquery.googleapis.com/projects/autopush-cmek-test-project-1/datasets/TestDSUsWest1/tables/TestTabUsWest1",
+				},
+			},
+			// Required: Execution settings (mapped from the "Schedule" UI section)
+			ExecutionSpec: &dataplexpb.DataScan_ExecutionSpec{
+				Trigger: &dataplexpb.Trigger{
+					Mode: &dataplexpb.Trigger_OnDemand_{
+						OnDemand: &dataplexpb.Trigger_OnDemand{},
+					},
+				},
+			},
+			// Required: Settings for the Data Profile scan type
+			Spec: &dataplexpb.DataScan_DataProfileSpec{
+				DataProfileSpec: &dataplexpb.DataProfileSpec{
+					// Mapped from the "Sampling size" UI parameter
+					SamplingPercent: 10.0,
+				},
+			},
+		},
 	}
 
 	catalogClient, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
@@ -186,32 +214,17 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		}
 	}
 
-	it := catalogClient.CreateDataScan(ctx, req)
-	if it == nil {
+	op, err := catalogClient.CreateDataScan(ctx, req)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
 
-	var results []Response
-	for {
-		entry, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			break
-		}
-		// entrySource := entry.DataplexEntry.GetEntrySource()
-		resp := Response{
-			// Make response....
-			// DisplayName:   entrySource.GetDisplayName(),
-			// Description:   entrySource.GetDescription(),
-			// Type:          ExtractType(entry.DataplexEntry.GetEntryType()),
-			// Resource:      entrySource.GetResource(),
-			// DataplexEntry: entry.DataplexEntry.GetName(),
-		}
-		results = append(results, resp)
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
-	return results, nil
+	
+	return resp
 }
 
 func (t Tool) ParseParams(data map[string]any, claims map[string]map[string]any) (parameters.ParamValues, error) {
