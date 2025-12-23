@@ -45,7 +45,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, bigqueryds.DataplexClientCreator, error)
+	MakeDataplexDataScanClient() func() (*dataplexapi.DataScanClient, bigqueryds.DataplexClientCreator, error)
 	BigQueryProject() string
 	UseClientAuthorization() bool
 }
@@ -173,7 +173,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		// Required: Parent location resource name extracted from your project/location
 		Parent: "projects/autopush-cmek-test-project-1/locations/us-west1",
 		// Required: Scan ID set to "testscan"
-		DataScanId: "testscan",
+		DataScanId: "testscan1",
 		// Required: DataScan resource configuration
 		DataScan: &dataplexpb.DataScan{
 			DisplayName: "TestScan",
@@ -201,7 +201,9 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		},
 	}
 
-	_, dataScanClient, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
+	fmt.Println("Request is: ", req)
+
+	dataScanClient, dataplexClientCreator, _ := source.MakeDataplexDataScanClient()()
 
 	if source.UseClientAuthorization() {
 		tokenStr, err := accessToken.ParseBearerToken()
@@ -216,11 +218,13 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 
 	op, err := dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
+		fmt.Println("Error1 is: ", err)
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
 
 	resp, err := op.Wait(ctx)
 	if err != nil {
+		fmt.Println("Error2 is: ", err)
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
 

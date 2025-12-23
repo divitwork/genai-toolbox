@@ -46,7 +46,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, bigqueryds.DataplexClientCreator, error)
+	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, bigqueryds.DataplexClientCreator, error)
 	BigQueryProject() string
 	UseClientAuthorization() bool
 }
@@ -217,7 +217,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		SemanticSearch: true,
 	}
 
-	catalogClient, _, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
+	catalogClient, dataplexClientCreator, _ := source.MakeDataplexCatalogClient()()
 
 	if source.UseClientAuthorization() {
 		tokenStr, err := accessToken.ParseBearerToken()
