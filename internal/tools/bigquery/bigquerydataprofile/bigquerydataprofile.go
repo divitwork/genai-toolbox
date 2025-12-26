@@ -17,7 +17,6 @@ package bigquerydataprofile
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	dataplexpb "cloud.google.com/go/dataplex/apiv1/dataplexpb"
@@ -26,6 +25,7 @@ import (
 	bigqueryds "github.com/googleapis/genai-toolbox/internal/sources/bigquery"
 	"github.com/googleapis/genai-toolbox/internal/tools"
 	"github.com/googleapis/genai-toolbox/internal/util/parameters"
+	"google.golang.org/grpc/status"
 )
 
 const kind string = "bigquery-data-profile"
@@ -117,30 +117,8 @@ func (t Tool) RequiresClientAuthorization(resourceMgr tools.SourceProvider) (boo
 }
 
 type Response struct {
-	DisplayName   string
-	Description   string
-	Type          string
-	Resource      string
-	DataplexEntry string
-}
-
-var typeMap = map[string]string{
-	"bigquery-connection":  "CONNECTION",
-	"bigquery-data-policy": "POLICY",
-	"bigquery-dataset":     "DATASET",
-	"bigquery-model":       "MODEL",
-	"bigquery-routine":     "ROUTINE",
-	"bigquery-table":       "TABLE",
-	"bigquery-view":        "VIEW",
-}
-
-func ExtractType(resourceString string) string {
-	lastIndex := strings.LastIndex(resourceString, "/")
-	if lastIndex == -1 {
-		// No "/" found, return the original string
-		return resourceString
-	}
-	return typeMap[resourceString[lastIndex+1:]]
+	DataScanName   string
+	State   string
 }
 
 func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, error) {
@@ -172,12 +150,12 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	}
 
 	displayName := paramsMap["displayname"].(string)
+	if displayName == "" {
+		return nil, fmt.Errorf("display name is required")
+	}
 	dataScanID := displayName
 
-	// Construct the parent resource name
 	parent := fmt.Sprintf("projects/%s/locations/%s", project, location)
-
-	// Construct the BigQuery table resource name
 	bqResource := fmt.Sprintf("//bigquery.googleapis.com/projects/%s/datasets/%s/tables/%s", project, dataset, table)
 
 	req := &dataplexpb.CreateDataScanRequest{
@@ -205,7 +183,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		},
 	}
 
-	fmt.Println("Request is: ", req)
+	fmt.Println("Request is: ", req) // Remove this log
 
 	dataScanClient, dataplexClientCreator, _ := source.MakeDataplexDataScanClient()()
 
@@ -222,39 +200,53 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 
 	op, err := dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
-		fmt.Println("Error1 is: ", err)
+		st, ok := status.FromError(err)
+		if ok {
+			return nil, fmt.Errorf("failed to create data scan for project %q with error: %s", source.BigQueryProject(), st.Message())
+		} 
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
 
 	resp, err := op.Wait(ctx)
 	if err != nil {
-		fmt.Println("Error2 is: ", err)
+		st, ok := status.FromError(err)
+		if ok {
+			return nil, fmt.Errorf("failed to create data scan for project %q with error: %s", source.BigQueryProject(), st.Message())
+		}
 		return nil, fmt.Errorf("failed to create data scan for project %q", source.BigQueryProject())
 	}
 
-	fmt.Println("respose is %s", resp)
+	fmt.Println("respose is %s", resp) // Remove this log statement
 
 	runReq := &dataplexpb.RunDataScanRequest{
 		Name: resp.GetName(), 
 	}
 
-	fmt.Println("Run dataScan req: ", runReq)
+	fmt.Println("Run dataScan req: ", runReq) // Remove this log statement 
 
 	runResp, err := dataScanClient.RunDataScan(ctx, runReq)
 	if err != nil {
-		fmt.Errorf("failed to run data scan: %v", err)
+		st, ok := status.FromError(err)
+		if ok {
+			return nil, fmt.Errorf("failed to run data scan with %v", st.Message())
+		}
+		return nil, fmt.Errorf("failed to run data scan")
+		
 	}
 
-	fmt.Println("Run DataScan resp: ", runResp)
+	fmt.Println("Run DataScan resp: ", runResp) // Remove this log statement 
 
 	job := runResp.GetJob()
 	if job != nil {
-		fmt.Printf("Successfully started Job: %s\n", job.GetName())
-		fmt.Printf("Current Job State: %s\n", job.GetState().String())
-		fmt.Printf("Job unique ID: %s\n", job.GetUid())
-	}
+		resp := Response{
+			DataScanName:   job.GetName(),
+			State:   job.GetState().String(),
+		}
+
+		return resp, nil 
+	} 
 	
-	return job, nil
+	return nil, fmt.Errorf("failed to run data scan")
 }
 
 func (t Tool) ParseParams(data map[string]any, claims map[string]map[string]any) (parameters.ParamValues, error) {
