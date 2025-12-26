@@ -12,6 +12,15 @@ The `bigquery-data-profile` tool allows users to identify common statistical cha
 
 By feeding the Knowledge Engine to build connected data graphs, it helps conversational agents ground their analytics responses, effectively reducing hallucinations and improving factual accuracy.
 
+`bigquery-data-profile` accepts the following parameters:
+
+- **`location`** (required): This refers to a Google Cloud region.
+- **`dataset`** (required): Specifies the dataset of the table.
+- **`table`** (required): The name of the table for which to to run data profilce scan.
+- **`displayname`** (required): The name and id of datascan. 
+- **`project`** (optional): The Google Cloud project ID. If not provided, the
+  tool defaults to the project from the source configuration.
+
 ## User Prompts
 
 Common prompts that trigger this tool include:

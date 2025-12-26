@@ -66,13 +66,13 @@ func (cfg Config) ToolConfigKind() string {
 }
 
 func (cfg Config) Initialize(srcs map[string]sources.Source) (tools.Tool, error) {
-	// Add parameters....
-	// prompt := parameters.NewStringParameter("prompt", "Prompt representing search intention. Do not rewrite the prompt.")
-	// datasetIds := parameters.NewArrayParameterWithDefault("datasetIds", []any{}, "Array of dataset IDs.", parameters.NewStringParameter("datasetId", "The IDs of the bigquery dataset."))
-	// projectIds := parameters.NewArrayParameterWithDefault("projectIds", []any{}, "Array of project IDs.", parameters.NewStringParameter("projectId", "The IDs of the bigquery project."))
-	// types := parameters.NewArrayParameterWithDefault("types", []any{}, "Array of data types to filter by.", parameters.NewStringParameter("type", "The type of the data. Accepted values are: CONNECTION, POLICY, DATASET, MODEL, ROUTINE, TABLE, VIEW."))
-	// pageSize := parameters.NewIntParameterWithDefault("pageSize", 5, "Number of results in the search page.")
-	params := parameters.Parameters{/** add parameters */}
+	location := parameters.NewStringParameter("location", "This refers to a Google Cloud region.")
+	dataset := parameters.NewStringParameter("dataset", "Specifies the dataset of the table.")
+	table := parameters.NewStringParameter("table", "The name of the table for which to to run data profilce scan.")
+	displayname := parameters.NewStringParameter("displayname", "The name and id of datascan. If not provided, the agent would generate a unique name/id based on timestamp.")
+	project := parameters.NewStringParameterWithDefault("project", "", "The Google Cloud project ID. If not provided, the tool defaults to the project from the source configuration.")
+
+	params := parameters.Parameters{location, dataset, table, displayname, project}
 
 	description := "Use this tool to analyze and understand tables by generating statistical insights."
 	if cfg.Description != "" {
@@ -150,40 +150,46 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	}
 
 	paramsMap := params.AsMap()
-	_ = paramsMap
-	// pageSize := int32(paramsMap["pageSize"].(int))
-	// prompt, _ := paramsMap["prompt"].(string)
-	// projectIdSlice, err := parameters.ConvertAnySliceToTyped(paramsMap["projectIds"].([]any), "string")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("can't convert projectIds to array of strings: %s", err)
-	// }
-	// projectIds := projectIdSlice.([]string)
-	// datasetIdSlice, err := parameters.ConvertAnySliceToTyped(paramsMap["datasetIds"].([]any), "string")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("can't convert datasetIds to array of strings: %s", err)
-	// }
-	// datasetIds := datasetIdSlice.([]string)
-	// typesSlice, err := parameters.ConvertAnySliceToTyped(paramsMap["types"].([]any), "string")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("can't convert types to array of strings: %s", err)
-	// }
-	// types := typesSlice.([]string)
+		
+	project := paramsMap["project"].(string)
+	if project == "" {
+		project = source.BigQueryProject()
+	}
+
+	location := paramsMap["location"].(string)
+	if location == "" {
+		return nil, fmt.Errorf("location parameter is required")
+	}
+
+	dataset := paramsMap["dataset"].(string)
+	if dataset == "" {
+		return nil, fmt.Errorf("dataset parameter is required")
+	}
+
+	table := paramsMap["table"]
+	if table == "" {
+		return nil, fmt.Errorf("table parameter is required")
+	}
+
+	displayName := paramsMap["displayname"].(string)
+	dataScanID := displayName
+
+	// Construct the parent resource name
+	parent := fmt.Sprintf("projects/%s/locations/%s", project, location)
+
+	// Construct the BigQuery table resource name
+	bqResource := fmt.Sprintf("//bigquery.googleapis.com/projects/%s/datasets/%s/tables/%s", project, dataset, table)
 
 	req := &dataplexpb.CreateDataScanRequest{
-		// Required: Parent location resource name extracted from your project/location
-		Parent: "projects/autopush-cmek-test-project-1/locations/us-west1",
-		// Required: Scan ID set to "testscan"
-		DataScanId: "testscan1",
-		// Required: DataScan resource configuration
+		Parent:  parent,
+		DataScanId: dataScanID,
 		DataScan: &dataplexpb.DataScan{
-			DisplayName: "TestScan",
-			// Required: The BigQuery table resource identified in your "Table to scan" section
+			DisplayName: displayName,
 			Data: &dataplexpb.DataSource{
 				Source: &dataplexpb.DataSource_Resource{
-					Resource: "//bigquery.googleapis.com/projects/autopush-cmek-test-project-1/datasets/TestDSUsWest1/tables/TestTabUsWest1",
+					Resource: bqResource,
 				},
 			},
-			// Required: Execution settings (mapped from the "Schedule" UI section)
 			ExecutionSpec: &dataplexpb.DataScan_ExecutionSpec{
 				Trigger: &dataplexpb.Trigger{
 					Mode: &dataplexpb.Trigger_OnDemand_{
@@ -191,10 +197,8 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 					},
 				},
 			},
-			// Required: Settings for the Data Profile scan type
 			Spec: &dataplexpb.DataScan_DataProfileSpec{
 				DataProfileSpec: &dataplexpb.DataProfileSpec{
-					// Mapped from the "Sampling size" UI parameter
 					SamplingPercent: 10.0,
 				},
 			},
@@ -229,8 +233,28 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	}
 
 	fmt.Println("respose is %s", resp)
+
+	runReq := &dataplexpb.RunDataScanRequest{
+		Name: resp.GetName(), 
+	}
+
+	fmt.Println("Run dataScan req: ", runReq)
+
+	runResp, err := dataScanClient.RunDataScan(ctx, runReq)
+	if err != nil {
+		fmt.Errorf("failed to run data scan: %v", err)
+	}
+
+	fmt.Println("Run DataScan resp: ", runResp)
+
+	job := runResp.GetJob()
+	if job != nil {
+		fmt.Printf("Successfully started Job: %s\n", job.GetName())
+		fmt.Printf("Current Job State: %s\n", job.GetState().String())
+		fmt.Printf("Job unique ID: %s\n", job.GetUid())
+	}
 	
-	return resp, nil
+	return job, nil
 }
 
 func (t Tool) ParseParams(data map[string]any, claims map[string]map[string]any) (parameters.ParamValues, error) {
