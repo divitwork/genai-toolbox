@@ -77,6 +77,11 @@ tools:
     kind: bigquery-get-data-scan-info
     source: bigquery-source
     description: Use this tool to view data profile scan and insight generation scan results.
+  
+  list_data_scans:
+    kind: bigquery-list-data-scans
+    source: bigquery-source
+    description: Use this tool to get a list of data scans of a project.
 
 toolsets:
   bigquery_database_tools:
@@ -91,3 +96,4 @@ toolsets:
     - search_catalog
     - data_profile
     - get_data_scan_info
+    - list_data_scans

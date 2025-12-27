@@ -69,6 +69,7 @@ import (
 	_ "github.com/googleapis/genai-toolbox/internal/tools/bigquery/bigquerysql"
 	_ "github.com/googleapis/genai-toolbox/internal/tools/bigquery/bigquerydataprofile"
 	_ "github.com/googleapis/genai-toolbox/internal/tools/bigquery/bigquerygetdatascaninfo"
+	_ "github.com/googleapis/genai-toolbox/internal/tools/bigquery/bigquerylistdatascans"
 	_ "github.com/googleapis/genai-toolbox/internal/tools/bigtable"
 	_ "github.com/googleapis/genai-toolbox/internal/tools/cassandra/cassandracql"
 	_ "github.com/googleapis/genai-toolbox/internal/tools/clickhouse/clickhouseexecutesql"
