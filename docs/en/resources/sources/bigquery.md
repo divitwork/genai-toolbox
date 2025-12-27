@@ -74,6 +74,9 @@ avoiding full table scans or complex filters.
   null counts) of the columns in your BigQuery tables. This information helps 
   to understand and analyze your data more effectively.
 
+- [`bigquery-get-data-scan-info](../tools/bigquery/bigquery-get-data-scan-profile.md)
+  View data profile scan and insight generation scan results.
+
 ### Pre-built Configurations
 
 - [BigQuery using

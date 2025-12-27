@@ -72,6 +72,11 @@ tools:
     kind: bigquery-data-profile 
     source: bigquery-source
     description: Use this tool to analyze and understand tables by generating statistical insights.
+  
+  get_data_scan_info:
+    kind: bigquery-get-data-scan-info
+    source: bigquery-source
+    description: Use this tool to view data profile scan and insight generation scan results.
 
 toolsets:
   bigquery_database_tools:
@@ -85,3 +90,4 @@ toolsets:
     - list_table_ids
     - search_catalog
     - data_profile
+    - get_data_scan_info
