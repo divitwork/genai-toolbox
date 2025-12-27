@@ -132,6 +132,7 @@ See [Usage Examples](../reference/cli.md#examples).
     *   `search_catalog`: Search for entries based on the provided query.
     *   `data_profile`: Analyze and understand tables to generate statistical insights.
     *   `get_data_scan_info`: View data profile scan and insight generation scan results.
+    *   `list_data_scans`: Get a list of data scans of a given project.
 
 ## Cloud SQL for MySQL
 

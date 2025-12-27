@@ -77,6 +77,9 @@ avoiding full table scans or complex filters.
 - [`bigquery-get-data-scan-info](../tools/bigquery/bigquery-get-data-scan-profile.md)
   View data profile scan and insight generation scan results.
 
+- [`bigquery-list-data-scans](../tools/bigquery/bigquery-list-data-scans.md)
+  Get a list of data scans of a given project.
+
 ### Pre-built Configurations
 
 - [BigQuery using
