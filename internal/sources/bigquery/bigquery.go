@@ -59,7 +59,7 @@ type BigqueryClientCreator func(tokenString string, wantRestService bool) (*bigq
 
 type BigQuerySessionProvider func(ctx context.Context) (*Session, error)
 
-type DataplexClientCreator func(tokenString string) (*dataplexapi.CatalogClient, error)
+type DataplexClientCreator func(tokenString string) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, error)
 
 func init() {
 	if !sources.Register(SourceKind, newConfig) {
@@ -181,7 +181,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	if r.WriteMode != WriteModeAllowed && r.WriteMode != WriteModeBlocked && r.WriteMode != WriteModeProtected {
 		return nil, fmt.Errorf("invalid writeMode %q: must be one of %q, %q, or %q", r.WriteMode, WriteModeAllowed, WriteModeProtected, WriteModeBlocked)
 	}
-	s.makeDataplexCatalogClient = s.lazyInitDataplexClient(ctx, tracer)
+	s.makeDataplexCatalogClient, s.makeDataplexDataScanClient = s.lazyInitDataplexClient(ctx, tracer)
 	return s, nil
 }
 
@@ -193,8 +193,13 @@ func setupClientCaching(s *Source, baseCreator BigqueryClientCreator) {
 			client.Close()
 		}
 	}
-	onDataplexEvict := func(key string, value interface{}) {
+	onDataplexCatalogEvict := func(key string, value interface{}) {
 		if client, ok := value.(*dataplexapi.CatalogClient); ok && client != nil {
+			client.Close()
+		}
+	}
+	onDataplexDataScanEvict := func(key string, value interface{}) {
+		if client, ok := value.(*dataplexapi.DataScanClient); ok && client != nil {
 			client.Close()
 		}
 	}
@@ -202,7 +207,8 @@ func setupClientCaching(s *Source, baseCreator BigqueryClientCreator) {
 	// Initialize caches
 	s.bqClientCache = NewCache(onBqEvict)
 	s.bqRestCache = NewCache(nil)
-	s.dataplexCache = NewCache(onDataplexEvict)
+	s.dataplexCatalogCache = NewCache(onDataplexCatalogEvict)
+	s.dataplexDataScanCache = NewCache(onDataplexDataScanEvict)
 
 	// Create the caching wrapper for the client creator
 	s.ClientCreator = func(tokenString string, wantRestService bool) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
@@ -249,13 +255,15 @@ type Source struct {
 	AllowedDatasets           map[string]struct{}
 	sessionMutex              sync.Mutex
 	makeDataplexCatalogClient func() (*dataplexapi.CatalogClient, DataplexClientCreator, error)
+	makeDataplexDataScanClient func() (*dataplexapi.DataScanClient, DataplexClientCreator, error)
 	SessionProvider           BigQuerySessionProvider
 	Session                   *Session
 
 	// Caches for OAuth clients
 	bqClientCache *Cache
 	bqRestCache   *Cache
-	dataplexCache *Cache
+	dataplexCatalogCache *Cache
+	dataplexDataScanCache *Cache
 }
 
 type Session struct {
@@ -446,46 +454,69 @@ func (s *Source) MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient,
 	return s.makeDataplexCatalogClient
 }
 
-func (s *Source) lazyInitDataplexClient(ctx context.Context, tracer trace.Tracer) func() (*dataplexapi.CatalogClient, DataplexClientCreator, error) {
+func (s *Source) MakeDataplexDataScanClient() func() (*dataplexapi.DataScanClient, DataplexClientCreator, error) {
+	return s.makeDataplexDataScanClient
+}
+
+func (s *Source) lazyInitDataplexClient(ctx context.Context, tracer trace.Tracer) (
+	func() (*dataplexapi.CatalogClient, DataplexClientCreator, error),
+	func() (*dataplexapi.DataScanClient, DataplexClientCreator, error),
+) {
 	var once sync.Once
-	var client *dataplexapi.CatalogClient
+	var catalogClient *dataplexapi.CatalogClient
+	var dataScanClient *dataplexapi.DataScanClient
 	var clientCreator DataplexClientCreator
 	var err error
 
-	return func() (*dataplexapi.CatalogClient, DataplexClientCreator, error) {
+	// Define the shared initialization logic
+	initialize := func() {
 		once.Do(func() {
-			c, cc, e := initDataplexConnection(ctx, tracer, s.Name, s.Project, s.UseClientOAuth, s.ImpersonateServiceAccount)
+			c1, c2, cc, e := initDataplexConnection(ctx, tracer, s.Name, s.Project, s.UseClientOAuth, s.ImpersonateServiceAccount)
 			if e != nil {
 				err = fmt.Errorf("failed to initialize dataplex client: %w", e)
 				return
 			}
-			client = c
+			catalogClient = c1
+			dataScanClient = c2
 
-			// If using OAuth, wrap the provided client creator (cc) with caching logic
 			if s.UseClientOAuth && cc != nil {
-				clientCreator = func(tokenString string) (*dataplexapi.CatalogClient, error) {
-					// Check cache
-					if val, found := s.dataplexCache.Get(tokenString); found {
-						return val.(*dataplexapi.CatalogClient), nil
+				// Corrected the return signature to match DataplexClientCreator
+				clientCreator = func(tokenString string) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, error) {
+					catVal, catFound := s.dataplexCatalogCache.Get(tokenString)
+					scanVal, scanFound := s.dataplexDataScanCache.Get(tokenString)
+
+					if catFound && scanFound {
+						return catVal.(*dataplexapi.CatalogClient), scanVal.(*dataplexapi.DataScanClient), nil
 					}
 
-					// Cache miss - call client creator
-					dpClient, err := cc(tokenString)
-					if err != nil {
-						return nil, err
+					// Use a local error variable here to avoid overwriting the package-level err
+					dpCatClient, dpScanClient, creatorErr := cc(tokenString)
+					if creatorErr != nil {
+						return nil, nil, creatorErr
 					}
 
-					// Set in cache
-					s.dataplexCache.Set(tokenString, dpClient)
-					return dpClient, nil
+					s.dataplexCatalogCache.Set(tokenString, dpCatClient)
+					s.dataplexDataScanCache.Set(tokenString, dpScanClient)
+					return dpCatClient, dpScanClient, nil
 				}
 			} else {
-				// Not using OAuth or no creator was returned
 				clientCreator = cc
 			}
 		})
-		return client, clientCreator, err
 	}
+
+	// Return two closures: one for Catalog and one for DataScan
+	catalogProvider := func() (*dataplexapi.CatalogClient, DataplexClientCreator, error) {
+		initialize()
+		return catalogClient, clientCreator, err
+	}
+
+	dataScanProvider := func() (*dataplexapi.DataScanClient, DataplexClientCreator, error) {
+		initialize()
+		return dataScanClient, clientCreator, err
+	}
+
+	return catalogProvider, dataScanProvider
 }
 
 func (s *Source) RetrieveClientAndService(accessToken tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
@@ -742,17 +773,20 @@ func initDataplexConnection(
 	project string,
 	useClientOAuth bool,
 	impersonateServiceAccount string,
-) (*dataplexapi.CatalogClient, DataplexClientCreator, error) {
-	var client *dataplexapi.CatalogClient
+) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, DataplexClientCreator, error) {
+	var catalogClient *dataplexapi.CatalogClient
+	var dataScanClient *dataplexapi.DataScanClient	
 	var clientCreator DataplexClientCreator
 	var err error
+	var catalogErr error
+	var dataScanErr error
 
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceKind, name)
 	defer span.End()
 
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if useClientOAuth {
@@ -767,7 +801,7 @@ func initDataplexConnection(
 				Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
 			})
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
+				return nil, nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
 			}
 			opts = []option.ClientOption{
 				option.WithUserAgent(userAgent),
@@ -777,7 +811,7 @@ func initDataplexConnection(
 			// Use default credentials
 			cred, err := google.FindDefaultCredentials(ctx)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to find default Google Cloud credentials: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to find default Google Cloud credentials: %w", err)
 			}
 			opts = []option.ClientOption{
 				option.WithUserAgent(userAgent),
@@ -785,13 +819,15 @@ func initDataplexConnection(
 			}
 		}
 
-		client, err = dataplexapi.NewCatalogClient(ctx, opts...)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Dataplex client for project %q: %w", project, err)
+		catalogClient, catalogErr = dataplexapi.NewCatalogClient(ctx, opts...)
+		dataScanClient, dataScanErr = dataplexapi.NewDataScanClient(ctx, opts...)
+
+		if err != nil || catalogErr != nil || dataScanErr != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create Dataplex client for project %q: %w", project, err)
 		}
 	}
 
-	return client, clientCreator, nil
+	return catalogClient, dataScanClient, clientCreator, nil
 }
 
 func initDataplexConnectionWithOAuthToken(
@@ -799,26 +835,28 @@ func initDataplexConnectionWithOAuthToken(
 	project string,
 	userAgent string,
 	tokenString string,
-) (*dataplexapi.CatalogClient, error) {
+) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, error) {
 	// Construct token source
 	token := &oauth2.Token{
 		AccessToken: string(tokenString),
 	}
 	ts := oauth2.StaticTokenSource(token)
 
-	client, err := dataplexapi.NewCatalogClient(ctx, option.WithUserAgent(userAgent), option.WithTokenSource(ts))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Dataplex client for project %q: %w", project, err)
+	catalogClient, catalogErr := dataplexapi.NewCatalogClient(ctx, option.WithUserAgent(userAgent), option.WithTokenSource(ts))
+	dataScanClient, dataScanErr := dataplexapi.NewDataScanClient(ctx, option.WithUserAgent(userAgent), option.WithTokenSource(ts))	
+
+	if catalogErr != nil || dataScanErr != nil {
+		return nil, nil, fmt.Errorf("failed to create Dataplex client for project %q: %w and %w", project, catalogErr, dataScanErr)
 	}
-	return client, nil
+	return catalogClient, dataScanClient, nil
 }
 
 func newDataplexClientCreator(
 	ctx context.Context,
 	project string,
 	userAgent string,
-) func(string) (*dataplexapi.CatalogClient, error) {
-	return func(tokenString string) (*dataplexapi.CatalogClient, error) {
+) func(string) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, error) {
+	return func(tokenString string) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, error) {
 		return initDataplexConnectionWithOAuthToken(ctx, project, userAgent, tokenString)
 	}
 }

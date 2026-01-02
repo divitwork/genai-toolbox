@@ -224,7 +224,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 		if err != nil {
 			return nil, fmt.Errorf("error parsing access token: %w", err)
 		}
-		catalogClient, err = dataplexClientCreator(tokenStr)
+		catalogClient, _, err = dataplexClientCreator(tokenStr)
 		if err != nil {
 			return nil, fmt.Errorf("error creating client from OAuth access token: %w", err)
 		}

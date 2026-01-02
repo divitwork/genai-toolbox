@@ -202,6 +202,7 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 	runBigQueryGetTableInfoToolInvokeTest(t, datasetName, tableName, tableInfoWant)
 	runBigQueryConversationalAnalyticsInvokeTest(t, datasetName, tableName, dataInsightsWant)
 	runBigQuerySearchCatalogToolInvokeTest(t, datasetName, tableName)
+	runBigQueryListDataScansToolInvokeTest(t)
 }
 
 func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
@@ -868,6 +869,24 @@ func addBigQueryPrebuiltToolsConfig(t *testing.T, config map[string]any) map[str
 		"kind":        "bigquery-search-catalog",
 		"source":      "my-client-auth-source",
 		"description": "Tool to search the BiqQuery catalog",
+	}
+		tools["my-list-data-scans-tool"] = map[string]any{
+		"kind":        "bigquery-list-data-scans",
+		"source":      "my-instance",
+		"description": "Tool to list data scans",
+	}
+	tools["my-auth-list-data-scans-tool"] = map[string]any{
+		"kind":        "bigquery-list-data-scans",
+		"source":      "my-instance",
+		"description": "Tool to list data scans",
+		"authRequired": []string{
+			"my-google-auth",
+		},
+	}
+	tools["my-client-auth-list-data-scans-tool"] = map[string]any{
+		"kind":        "bigquery-list-data-scans",
+		"source":      "my-client-auth-source",
+		"description": "Tool to list data scans",
 	}
 	config["tools"] = tools
 	return config
@@ -3057,6 +3076,104 @@ func runBigQuerySearchCatalogToolInvokeTest(t *testing.T, datasetName string, ta
 				if len(entries) != 0 {
 					t.Fatalf("expected 0 entries, but got %d", len(entries))
 				}
+			}
+		})
+	}
+}
+
+func runBigQueryListDataScansToolInvokeTest(t *testing.T) {
+	// Get ID token for auth tests
+	idToken, err := tests.GetGoogleIdToken(tests.ClientId)
+	if err != nil {
+		t.Fatalf("error getting Google ID token: %s", err)
+	}
+
+	// Get access token for client auth tests
+	accessToken, err := sources.GetIAMAccessToken(t.Context())
+	if err != nil {
+		t.Fatalf("error getting access token from ADC: %s", err)
+	}
+	accessToken = "Bearer " + accessToken
+
+	// Test tool invoke endpoint
+	invokeTcs := []struct {
+		name          string
+		api           string
+		requestHeader map[string]string
+		requestBody   io.Reader
+		want          string
+		isErr         bool
+	}{
+		{
+			name:          "invoke my-list-data-scans-tool",
+			api:           "http://127.0.0.1:5000/api/tool/my-list-data-scans-tool/invoke",
+			requestHeader: map[string]string{},
+			requestBody:   bytes.NewBuffer([]byte(`{"location":"us-central1"}`)),
+			isErr:         false,
+			want:          "DataScans", // Check if the response contains the DataScans field
+		},
+		{
+			name:          "invoke without required location",
+			api:           "http://127.0.0.1:5000/api/tool/my-list-data-scans-tool/invoke",
+			requestHeader: map[string]string{},
+			requestBody:   bytes.NewBuffer([]byte(`{}`)),
+			isErr:         true,
+		},
+		{
+			name:          "invoke my-auth-list-data-scans-tool with token",
+			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-data-scans-tool/invoke",
+			requestHeader: map[string]string{"my-google-auth_token": idToken},
+			requestBody:   bytes.NewBuffer([]byte(`{"location":"us-central1"}`)),
+			isErr:         false,
+			want:          "DataScans",
+		},
+		{
+			name:          "invoke my-client-auth-list-data-scans-tool with token",
+			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-data-scans-tool/invoke",
+			requestHeader: map[string]string{"Authorization": accessToken},
+			requestBody:   bytes.NewBuffer([]byte(`{"location":"us-central1"}`)),
+			isErr:         false,
+			want:          "DataScans",
+		},
+	}
+
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
+			if err != nil {
+				t.Fatalf("unable to create request: %s", err)
+			}
+			req.Header.Add("Content-type", "application/json")
+			for k, v := range tc.requestHeader {
+				req.Header.Add(k, v)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("unable to send request: %s", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				if tc.isErr {
+					return
+				}
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+			}
+
+			var body map[string]interface{}
+			err = json.NewDecoder(resp.Body).Decode(&body)
+			if err != nil {
+				t.Fatalf("error parsing response body")
+			}
+
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body")
+			}
+
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("expected result to contain %q, but got %q", tc.want, got)
 			}
 		})
 	}

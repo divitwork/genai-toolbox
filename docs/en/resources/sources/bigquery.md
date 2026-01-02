@@ -69,6 +69,9 @@ avoiding full table scans or complex filters.
   List all entries in Dataplex Catalog (e.g. tables, views, models) that matches
   given user query.
 
+- [`bigquery-list-data-scans](../tools/bigquery/bigquery-list-data-scans.md)
+  Get a list of data scans of a given project.
+
 ### Pre-built Configurations
 
 - [BigQuery using

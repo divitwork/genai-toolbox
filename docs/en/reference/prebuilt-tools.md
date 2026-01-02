@@ -130,6 +130,7 @@ See [Usage Examples](../reference/cli.md#examples).
     *   `list_dataset_ids`: Lists datasets.
     *   `list_table_ids`: Lists tables.
     *   `search_catalog`: Search for entries based on the provided query.
+    * `list_data_scans`: Get a list of data scans of a given project.
 
 ## Cloud SQL for MySQL
 

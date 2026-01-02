@@ -68,6 +68,11 @@ tools:
     source: bigquery-source
     description: Use this tool to find tables, views, models, routines or connections.
 
+  list_data_scans:
+    kind: bigquery-list-data-scans
+    source: bigquery-source
+    description: Use this tool to get a list of data scans of a project.
+
 toolsets:
   bigquery_database_tools:
     - analyze_contribution
@@ -79,3 +84,4 @@ toolsets:
     - list_dataset_ids
     - list_table_ids
     - search_catalog
+    - list_data_scans
