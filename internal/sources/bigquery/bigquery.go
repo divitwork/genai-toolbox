@@ -509,7 +509,7 @@ func (s *Source) lazyInitDataplexClient(ctx context.Context, tracer trace.Tracer
 	// Define the shared initialization logic
 	initialize := func() {
 		once.Do(func() {
-			c1, c2, cc, e := initDataplexConnection(ctx, tracer, s.Name, s.Project, s.UseClientOAuth, s.ImpersonateServiceAccount, s.Scopes)
+			c1, c2, cc, e := initDataplexConnection(ctx, tracer, s.Name, s.Project, s.UseClientOAuth, s.ImpersonateServiceAccount)
 			if e != nil {
 				err = fmt.Errorf("failed to initialize dataplex client: %w", e)
 				return
@@ -820,7 +820,7 @@ func initDataplexConnection(
 	name string,
 	project string,
 	useClientOAuth bool,
-	impersonateServiceAccount string,
+	impersonateServiceAccount string,	
 	scopes []string,
 ) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, DataplexClientCreator, error) {
 	var catalogClient *dataplexapi.CatalogClient
